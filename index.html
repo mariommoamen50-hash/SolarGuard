@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SolarGuard</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#14202b;--mu:#64748b;--bd:#e2e8f0;--ac:#f59e0b;--ok:#16a34a;--wr:#d97706;--er:#dc2626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1720;--card:#19242f;--tx:#e8eef4;--mu:#94a3b8;--bd:#2a3846}}
+:root[data-theme="dark"]{--bg:#0f1720;--card:#19242f;--tx:#e8eef4;--mu:#94a3b8;--bd:#2a3846}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,Segoe UI,Arial,sans-serif}
+.app{display:flex;min-height:100vh}
+nav{width:190px;background:var(--card);border-right:1px solid var(--bd);padding:14px;flex-shrink:0}
+nav h1{font-size:18px;margin:0 0 14px;color:var(--ac)}
+nav button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--tx);padding:9px 10px;border-radius:8px;cursor:pointer;font:inherit}
+nav button.on,nav button:hover{background:var(--bg)}
+nav .b{background:var(--er);color:#fff;border-radius:9px;padding:0 6px;font-size:11px;margin-left:6px}
+main{flex:1;padding:18px;min-width:0}
+h2{margin:0 0 12px;font-size:20px}h3{margin:0 0 8px;font-size:14px;color:var(--mu);font-weight:600}
+.g{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:12px}
+.c{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;min-width:0}
+.v{font-size:26px;font-weight:700}.s{color:var(--mu);font-size:12px}
+.ok{color:var(--ok)}.wr{color:var(--wr)}.er{color:var(--er)}
+.btn{background:var(--ac);color:#111;border:0;border-radius:8px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+.btn.sec{background:var(--bg);color:var(--tx);border:1px solid var(--bd)}.btn.red{background:var(--er);color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd)}.row:last-child{border:0}
+.bar{height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--ac);transition:width .4s}
+svg.ch{width:100%;height:150px;display:block}
+.al{padding:9px 10px;border-left:4px solid var(--bd);margin-bottom:8px;background:var(--bg);border-radius:6px}
+.al.Critical{border-color:var(--er)}.al.Warning{border-color:var(--wr)}.al.Info{border-color:var(--ok)}.al.read{opacity:.55}
+input[type=number],input[type=text],input[type=password],select{background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font:inherit;width:100%}
+label{display:block;margin:8px 0 3px;color:var(--mu);font-size:12px}
+.zn{display:flex;gap:8px;margin:8px 0}.zn div{flex:1;text-align:center;padding:10px;border:1px solid var(--bd);border-radius:8px}.zn .d{background:var(--ok);color:#fff}.zn .a{background:var(--ac);color:#111}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+#login{max-width:340px;margin:12vh auto;padding:0 16px}
+@media(max-width:700px){.app{flex-direction:column}nav{width:100%;display:flex;flex-wrap:wrap;gap:4px;border-right:0;border-bottom:1px solid var(--bd)}nav h1{width:100%;margin:0}nav button{width:auto}}
+</style>
+</head>
+<body>
+<div id="login"><div class="c"><h2>SolarGuard</h2><label>Username</label><input type="text" id="em" value="mariam"><label>Password</label><input type="password" id="pw" value="2563"><div id="lerr" class="er s"></div><p><button class="btn" onclick="enter()">Login</button></p><div class="s">Data comes from a built-in ESP32 simulator.</div></div></div>
+<div class="app" id="app" style="display:none"><nav id="nav"></nav><main id="main"></main></div>
+<script>
+// ---------- State (simulated ESP32 + backend) ----------
+const S={t:0,p:0,v:24.5,i:0,soc:78,temp:29,wind:12,rain:false,storm:false,dust:0.05,irr:900,
+ hist:{p:[],soc:[],wind:[],temp:[]},energy:0,arm:'Standby',clean:null,sessions:[],alerts:[],
+ cfg:{maxWind:30,minBat:30,rainClean:false,auto:false,sched:{days:['Sun','Wed'],time:'08:00'}},
+ forced:{wind:null,rain:null,storm:null},online:true,samples:0,lastClean:'Never',emergency:false};
+let tab='Dashboard',alertFilter='All',ai={};
+const $=id=>document.getElementById(id);
+function alertAdd(sev,title,msg){const k=title;if(S.alerts.find(a=>a.title===k&&!a.resolved&&Date.now()-a.ts<20000))return;S.alerts.unshift({id:Date.now()+Math.random(),sev,title,msg,ts:Date.now(),read:false,resolved:false});if(S.alerts.length>60)S.alerts.pop()}
+// ---------- Safety layer (runs on the ESP32, locally) ----------
+function safety(){const r=[];
+ if(S.wind>=S.cfg.maxWind)r.push('Wind too high ('+S.wind.toFixed(0)+' km/h)');
+ if(S.rain&&!S.cfg.rainClean)r.push('Rain detected');
+ if(S.storm)r.push('Storm detected');
+ if(S.soc<S.cfg.minBat)r.push('Battery below '+S.cfg.minBat+'%');
+ if(S.arm!=='Standby')r.push('Arm not available ('+S.arm+')');
+ return r}
+// ---------- Simulator tick ----------
+function tick(){S.t++;const h=(new Date().getHours()+new Date().getMinutes()/60);
+ const sun=Math.max(0,Math.sin((h-6)/12*Math.PI));
+ S.irr=Math.round(1000*Math.max(sun,0.35)*(S.rain?0.4:1)*(1+Math.sin(S.t/9)*0.03));
+ S.temp=+(27+sun*6+Math.sin(S.t/30)*.6).toFixed(1);
+ const fw=S.forced.wind;S.wind=fw!==null?fw:Math.max(2,+(12+Math.sin(S.t/12)*4+Math.random()*2).toFixed(1));
+ if(S.forced.rain!==null)S.rain=S.forced.rain;if(S.forced.storm!==null)S.storm=S.forced.storm;
+ const exp=1000*(S.irr/1000)*(1-(S.temp-25)*0.004);
+ S.exp=exp;S.p=Math.max(0,exp*(1-S.dust)+(Math.random()-.5)*15);
+ S.v=+(24.2+S.soc/100*1.2+Math.random()*.1).toFixed(2);S.i=+(S.p/S.v).toFixed(2);
+ S.energy+=S.p/1000/3600*120; // accelerated x120 for demo
+ S.soc=Math.min(100,Math.max(5,S.soc+(S.p>300?.03:-.02)-(S.arm==='Cleaning'?.06:0)));
+ if(S.clean)cleanStep();
+ // dust accumulates slowly (accelerated)
+ if(!S.clean)S.dust=Math.min(.6,S.dust+.0004);
+ S.samples++;const H=S.hist;[['p',S.p],['soc',S.soc],['wind',S.wind],['temp',S.temp]].forEach(([k,v])=>{H[k].push(+v.toFixed(1));if(H[k].length>60)H[k].shift()});
+ // local emergency stop
+ if(S.clean&&S.wind>=S.cfg.maxWind){emergencyStop('Severe wind detected during cleaning')}
+ if(S.storm&&S.clean)emergencyStop('Storm detected during cleaning');
+ if(S.wind>=S.cfg.maxWind)alertAdd('Critical','Severe wind detected','Wind '+S.wind.toFixed(0)+' km/h exceeds limit of '+S.cfg.maxWind);
+ if(S.storm)alertAdd('Critical','Storm detected','Arm operations are blocked.');
+ if(S.soc<S.cfg.minBat)alertAdd('Warning','Battery level low','SOC '+S.soc.toFixed(0)+'%');
+ runAI();
+ if(S.cfg.auto&&ai.status!=='Normal'&&ai.ready&&!S.clean&&S.t%15===0){if(!safety().length){alertAdd('Info','Automatic cleaning started','AI recommendation passed the safety check.');startClean('automatic')}}
+ render()}
+// ---------- Cleaning sequence ----------
+function startClean(mode){const why=safety();if(why.length){alertAdd('Warning','Cleaning command rejected',why.join('; '));return why}
+ S.arm='Cleaning';S.emergency=false;S.clean={mode,zone:0,prog:0,started:new Date()};return[]}
+function cleanStep(){const c=S.clean;c.prog+=2.2;c.zone=Math.min(3,Math.floor(c.prog/33.4));S.dust=Math.max(.02,S.dust-.0035);
+ if(c.prog>=100){S.sessions.unshift({at:c.started.toLocaleTimeString(),mode:c.mode,status:'completed'});S.lastClean=new Date().toLocaleTimeString();S.clean=null;S.arm='Standby';alertAdd('Info','Cleaning completed','Zone 1, 2, 3 done. Arm returned home.')}}
+function emergencyStop(msg){if(!S.clean)return;S.sessions.unshift({at:S.clean.started.toLocaleTimeString(),mode:S.clean.mode,status:'aborted: '+msg});S.clean=null;S.arm='Standby';S.emergency=true;alertAdd('Critical','Emergency stop',msg+'. Arm moved to safe position (executed locally on ESP32).')}
+function stopClean(){if(S.clean){S.sessions.unshift({at:S.clean.started.toLocaleTimeString(),mode:S.clean.mode,status:'stopped by user'});S.clean=null;S.arm='Standby'}}
+// ---------- AI (rule + statistics stand-in for the Python service) ----------
+function runAI(){if(S.samples<20){ai={ready:false,status:'Collecting'};return}
+ const exp=S.exp,act=S.p,loss=exp>50?Math.max(0,(exp-act)/exp*100):0;
+ const conf=Math.min(97,Math.round(50+loss*1.6));
+ let st='Normal';if(loss>25)st='Possible Dust';else if(loss>12)st='Possible Dust';
+ const anom=loss>45;if(anom)st='Possible Anomaly';
+ const base=S.hist.p.reduce((a,b)=>a+b,0)/Math.max(1,S.hist.p.length)/1000;
+ ai={ready:true,status:st,loss,conf,exp,act,anom,today:(8.7*(1-S.dust*.3)).toFixed(1),tomorrow:(7.9*(S.rain?.7:1)).toFixed(1),week:[8.7,7.9,8.3,8.8,7.2,8.5,8.9].map(x=>+(x*(1-S.dust*.2)).toFixed(1))}}
+// ---------- Charts ----------
+function line(arr,col,min,max){if(arr.length<2)return'<svg class="ch"></svg>';const w=600,h=150;min=min??Math.min(...arr);max=max??Math.max(...arr);if(max===min)max=min+1;
+ const pts=arr.map((v,i)=>(i/(59)*w).toFixed(1)+','+(h-8-(v-min)/(max-min)*(h-16)).toFixed(1)).join(' ');
+ return'<svg class="ch" viewBox="0 0 600 150" preserveAspectRatio="none"><polyline fill="none" stroke="'+col+'" stroke-width="2" points="'+pts+'"/></svg><div class="s">min '+min.toFixed(0)+' / max '+max.toFixed(0)+'</div>'}
+function bars(arr,unit){const m=Math.max(...arr);return'<svg class="ch" viewBox="0 0 280 150" preserveAspectRatio="none">'+arr.map((v,i)=>'<rect x="'+(i*40+6)+'" y="'+(140-v/m*120)+'" width="28" height="'+(v/m*120)+'" fill="var(--ac)"/><text x="'+(i*40+20)+'" y="147" font-size="9" text-anchor="middle" fill="var(--mu)">D'+(i+1)+'</text>').join('')+'</svg>'}
+// ---------- Views ----------
+const pill=(t,c)=>'<span class="'+c+'">'+t+'</span>';
+function sysStatus(){return'<div class="c"><h3>System Status</h3><div class="row"><span>ESP32</span>'+pill(S.online?'Connected':'Offline',S.online?'ok':'er')+'</div><div class="row"><span>Solar Panel</span>'+pill(ai.status==='Normal'||!ai.ready?'Normal':'Needs attention',ai.status==='Normal'||!ai.ready?'ok':'wr')+'</div><div class="row"><span>Battery</span><span>'+(S.p>300?'Charging':'Discharging')+'</span></div><div class="row"><span>Robotic Arm</span><span>'+S.arm+'</span></div><div class="row"><span>Weather</span>'+wsafe()+'</div></div>'}
+function wsafe(){return safetyWeather().length?pill('UNSAFE','er'):pill('SAFE','ok')}
+function safetyWeather(){return safety().filter(x=>/Wind|Rain|Storm/.test(x))}
+function cleanCtl(){const c=S.clean;let h='<div class="c"><h3>Robotic Arm</h3><div class="row"><span>Status</span><b>'+S.arm+'</b></div><div class="row"><span>Last cleaning</span><span>'+S.lastClean+'</span></div>';
+ if(c){h+='<div class="zn">'+[1,2,3].map(z=>'<div class="'+(c.zone>=z?'d':(c.zone===z-1?'a':''))+'">Zone '+z+'</div>').join('')+'</div><div class="bar"><i style="width:'+c.prog+'%"></i></div><div class="s">'+c.prog.toFixed(0)+'% - '+c.mode+'</div><button class="btn red" onclick="stopClean()">Stop</button>'}
+ else{const w=safety();h+='<p><button class="btn" onclick="doStart()">Start Cleaning</button></p>'+(w.length?'<div class="er">Blocked: '+w.join('; ')+'</div>':'<div class="ok s">Safety check: clear</div>')}
+ return h+'</div>'}
+function doStart(){const r=startClean('manual');if(r.length)alert('Command rejected by safety layer:\n'+r.join('\n'));render()}
+function aiCard(){if(!ai.ready)return'<div class="c"><h3>AI Insight</h3>AI model is collecting data. ('+S.samples+'/20 samples)</div>';
+ return'<div class="c"><h3>AI Insight</h3><div class="v '+(ai.status==='Normal'?'ok':'wr')+'">'+ai.status+'</div><div class="s">Estimated loss '+ai.loss.toFixed(0)+'% - Confidence '+ai.conf+'%</div>'+(ai.status!=='Normal'?'<p class="s">Cleaning recommended. The safety layer makes the final decision.</p>':'')+'<button class="btn sec" onclick="go(\'AI\')">View Details</button></div>'}
+const V={
+Dashboard(){return'<h2>Dashboard</h2><div class="g"><div class="c"><h3>Current Power</h3><div class="v">'+(S.p/1000).toFixed(2)+' kW</div></div><div class="c"><h3>Today Energy</h3><div class="v">'+S.energy.toFixed(2)+' kWh</div></div><div class="c"><h3>Battery</h3><div class="v">'+S.soc.toFixed(0)+'%</div></div><div class="c"><h3>Efficiency</h3><div class="v">'+(S.exp>50?Math.min(100,S.p/S.exp*100).toFixed(0):'--')+'%</div></div></div><div class="c"><h3>Live Power (W)</h3>'+line(S.hist.p,'#f59e0b',0)+'</div><div class="g" style="margin-top:12px">'+sysStatus()+'<div class="c"><h3>Weather</h3><div class="row"><span>Temperature</span><span>'+S.temp+' C</span></div><div class="row"><span>Wind</span><span>'+S.wind.toFixed(0)+' km/h</span></div><div class="row"><span>Rain</span><span>'+(S.rain?'Yes':'No')+'</span></div><div class="row"><span>Storm</span><span>'+(S.storm?'Yes':'No')+'</span></div></div>'+aiCard()+cleanCtl()+'</div>'},
+Energy(){return'<h2>Energy</h2><div class="g"><div class="c"><h3>Voltage</h3><div class="v">'+S.v+' V</div></div><div class="c"><h3>Current</h3><div class="v">'+S.i+' A</div></div><div class="c"><h3>Generated today</h3><div class="v">'+S.energy.toFixed(2)+' kWh</div></div></div><div class="c"><h3>Power over time (W)</h3>'+line(S.hist.p,'#f59e0b',0)+'</div><div class="c" style="margin-top:12px"><h3>Battery SOC (%)</h3>'+line(S.hist.soc,'#16a34a',0,100)+'<div class="row"><span>Voltage</span><span>'+S.v+' V</span></div><div class="row"><span>Status</span>'+pill(S.soc<S.cfg.minBat?'Low Battery':'Normal',S.soc<S.cfg.minBat?'wr':'ok')+'</div></div><div class="c" style="margin-top:12px"><h3>Energy flow</h3>Solar Panel to Generated to (Load + Battery)</div>'},
+Weather(){return'<h2>Weather</h2><div class="g"><div class="c"><h3>Temperature</h3><div class="v">'+S.temp+' C</div></div><div class="c"><h3>Wind</h3><div class="v">'+S.wind.toFixed(0)+' km/h</div></div><div class="c"><h3>Irradiance</h3><div class="v">'+S.irr+' W/m2</div></div><div class="c"><h3>Safety</h3><div class="v">'+wsafe()+'</div></div></div><div class="c"><h3>Wind history</h3>'+line(S.hist.wind,'#0ea5e9',0)+'</div><div class="c" style="margin-top:12px"><h3>Temperature history</h3>'+line(S.hist.temp,'#dc2626')+'</div><div class="c" style="margin-top:12px"><h3>Simulate conditions (ESP32 sensor override)</h3><div class="tabs"><button class="btn sec" onclick="S.forced.wind=45">Strong wind</button><button class="btn sec" onclick="S.forced.rain=true">Rain on</button><button class="btn sec" onclick="S.forced.storm=true">Storm on</button><button class="btn sec" onclick="S.dust=.3">Add dust</button><button class="btn sec" onclick="S.forced={wind:null,rain:null,storm:null};S.rain=false;S.storm=false">Reset weather</button></div></div>'},
+Cleaning(){return'<h2>Cleaning</h2><div class="g">'+cleanCtl()+'<div class="c"><h3>Automatic Cleaning</h3><label>Enable</label><select onchange="S.cfg.auto=this.value==\'1\'"><option value="0" '+(S.cfg.auto?'':'selected')+'>OFF</option><option value="1" '+(S.cfg.auto?'selected':'')+'>ON</option></select><div class="s" style="margin-top:8px">Trigger: AI detection / performance drop. Minimum battery: '+S.cfg.minBat+'%. Safety check: always ON.</div></div><div class="c"><h3>Schedule</h3><div class="row"><span>Days</span><span>'+S.cfg.sched.days.join(', ')+'</span></div><div class="row"><span>Time</span><span>'+S.cfg.sched.time+'</span></div></div></div><div class="c"><h3>Cleaning History</h3>'+(S.sessions.length?S.sessions.map(x=>'<div class="row"><span>'+x.at+' ('+x.mode+')</span><span>'+x.status+'</span></div>').join(''):'<div class="s">No sessions yet.</div>')+'</div>'},
+AI(){if(!ai.ready)return'<h2>AI Insights</h2><div class="c">AI model is collecting data. ('+S.samples+'/20 samples)</div>';
+ return'<h2>AI Insights</h2><div class="g"><div class="c"><h3>Panel Condition</h3><div class="v '+(ai.status==='Normal'?'ok':'wr')+'">'+ai.status+'</div><div class="row"><span>Confidence</span><span>'+ai.conf+'%</span></div><div class="row"><span>Expected power</span><span>'+ai.exp.toFixed(0)+' W</span></div><div class="row"><span>Actual power</span><span>'+ai.act.toFixed(0)+' W</span></div><div class="row"><span>Estimated loss</span><span>'+ai.loss.toFixed(0)+'%</span></div><div class="row"><span>Recommendation</span><span>'+(ai.status==='Normal'?'None':'Cleaning recommended')+'</span></div></div><div class="c"><h3>Energy Forecast</h3><div class="row"><span>Today</span><span>'+ai.today+' kWh</span></div><div class="row"><span>Tomorrow</span><span>'+ai.tomorrow+' kWh</span></div>'+bars(ai.week)+'<div class="s">Next 7 days (kWh)</div></div><div class="c"><h3>Anomaly Detection</h3>'+(ai.anom?'<div class="er">Anomaly detected: output is lower than expected for current weather.</div><div class="s">Possible causes: dust, panel issue, sensor issue. Causes are probabilities, not confirmed.</div>':'<div class="ok">No anomaly.</div>')+'</div></div><div class="s">Demo model: expected vs actual power. The production version would use a Python service (Scikit-learn, Isolation Forest) trained on collected data.</div>'},
+Alerts(){const list=S.alerts.filter(a=>alertFilter==='All'||a.sev===alertFilter||(alertFilter==='Unread'&&!a.read));
+ return'<h2>Alerts</h2><div class="tabs">'+['All','Critical','Warning','Info','Unread'].map(f=>'<button class="btn '+(alertFilter===f?'':'sec')+'" onclick="alertFilter=\''+f+'\'">'+f+'</button>').join('')+'</div>'+(list.length?list.map(a=>'<div class="al '+a.sev+(a.read?' read':'')+'"><b>'+a.sev+': '+a.title+'</b><div class="s">'+a.msg+' - '+new Date(a.ts).toLocaleTimeString()+'</div>'+(a.read?'':'<button class="btn sec" onclick="markRead('+a.id+')">Mark read</button>')+'</div>').join(''):'<div class="c">No alerts.</div>')},
+Reports(){return'<h2>Reports</h2><div class="c"><h3>Generate Report</h3><div class="s">Includes energy, battery, weather, cleaning and AI for the current session.</div><p><button class="btn" onclick="report()">Generate and print / save as PDF</button></p></div>'},
+Settings(){return'<h2>Settings</h2><div class="g"><div class="c"><h3>Safety (admin)</h3><label>Maximum safe wind (km/h)</label><input type="number" value="'+S.cfg.maxWind+'" onchange="S.cfg.maxWind=+this.value"><label>Minimum battery (%)</label><input type="number" value="'+S.cfg.minBat+'" onchange="S.cfg.minBat=+this.value"><label>Rain cleaning policy</label><select onchange="S.cfg.rainClean=this.value==\'1\'"><option value="0" '+(S.cfg.rainClean?'':'selected')+'>Block cleaning in rain</option><option value="1" '+(S.cfg.rainClean?'selected':'')+'>Allow</option></select></div><div class="c"><h3>Account</h3><div class="row"><span>Username</span><span>'+$('em').value+'</span></div><div class="row"><span>Role</span><span>admin</span></div><p><button class="btn sec" onclick="toggleTheme()">Toggle theme</button> <button class="btn sec" onclick="location.reload()">Logout</button></p></div></div>'}
+};
+function report(){const w=window.open('','_blank');if(!w){alert('Allow pop-ups to generate the report');return}w.document.write('<title>SolarGuard Report</title><body style="font-family:sans-serif"><h1>SolarGuard Report</h1><p>'+new Date().toLocaleString()+'</p><h3>Energy</h3><p>Generated: '+S.energy.toFixed(2)+' kWh, current power '+S.p.toFixed(0)+' W</p><h3>Battery</h3><p>SOC '+S.soc.toFixed(0)+'%, '+S.v+' V</p><h3>Weather</h3><p>'+S.temp+' C, wind '+S.wind.toFixed(0)+' km/h</p><h3>Cleaning</h3><p>'+S.sessions.length+' sessions</p><h3>AI</h3><p>'+(ai.ready?ai.status+' ('+ai.conf+'%), loss '+ai.loss.toFixed(0)+'%':'collecting data')+'</p></body>');w.document.close();w.print()}
+function markRead(id){const a=S.alerts.find(x=>x.id===id);if(a)a.read=true;render()}
+function toggleTheme(){const r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'}
+function go(t){tab=t;render()}
+function render(){const un=S.alerts.filter(a=>!a.read).length;
+ $('nav').innerHTML='<h1>SolarGuard</h1>'+Object.keys(V).map(k=>'<button class="'+(k===tab?'on':'')+'" onclick="go(\''+k+'\')">'+k+(k==='Alerts'&&un?'<span class="b">'+un+'</span>':'')+'</button>').join('');
+ const ae=document.activeElement;if(ae&&(ae.tagName==='INPUT'||ae.tagName==='SELECT'))return;
+ $('main').innerHTML=V[tab]()}
+function enter(){if($('em').value.trim().toLowerCase()!=='mariam'||$('pw').value!=='2563'){$('lerr').textContent='Wrong username or password';return}$('login').style.display='none';$('app').style.display='flex';for(let i=0;i<25;i++)tick();setInterval(tick,1000)}
+</script>
+</body>
+</html>
